@@ -7,12 +7,12 @@ import path from 'node:path';
 import { createServer } from '../scripts/server.mjs';
 import { validateOptions } from '../scripts/export-api.mjs';
 
-const validOptions = { mode: 'english', aspect: '16:9', quality: '720', clips: [{ start: 0, end: 2 }], cues: [], sourceName: 'test.mp4' };
+const validOptions = { mode: 'original-english', aspect: '16:9', quality: '720', clips: [{ start: 0, end: 2 }], cues: [], sourceName: 'test.mp4' };
 const fakeWorker = `
 import fs from 'node:fs/promises';
 import path from 'node:path';
 if (process.argv.includes('--check')) {
-  console.log(JSON.stringify({ready:true,problems:[],capabilities:{original:true,english:true}}));
+  console.log(JSON.stringify({ready:true,problems:[],capabilities:{original:true,'original-english':true,english:false}}));
 } else {
   const job = JSON.parse(await fs.readFile(process.argv[process.argv.indexOf('--job')+1], 'utf8'));
   const source = await fs.readFile(job.source);
@@ -41,7 +41,7 @@ async function fixture(t, extra = {}) {
     req.on('error', reject); req.end(body);
   });
   const capability = await request('/api/capabilities');
-  assert.equal(capability.status, 200); assert.equal(capability.data.englishReady, true); assert.equal(capability.data.originalReady, true);
+  assert.equal(capability.status, 200); assert.equal(capability.data.subtitleReady, true); assert.equal(capability.data.englishReady, false); assert.equal(capability.data.originalReady, true);
   const headers = { 'X-CineCut-Token': capability.data.token };
   const create = (settings = validOptions) => request('/api/jobs', { method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify(settings) });
   const poll = async (id, predicate = job => ['completed', 'failed', 'cancelled'].includes(job.state)) => {

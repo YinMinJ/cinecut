@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
+import { createExportApi } from './export-api.mjs';
 
 const root = fs.realpathSync(fileURLToPath(new URL('../dist', import.meta.url)));
 const mime = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.json': 'application/json; charset=utf-8', '.txt': 'text/plain; charset=utf-8', '.mp4': 'video/mp4', '.webm': 'video/webm', '.jpg': 'image/jpeg', '.png': 'image/png', '.svg': 'image/svg+xml' };
@@ -26,8 +27,10 @@ export function parseRange(header, size) {
 
 function insideRoot(file) { const relative = path.relative(root, file); return relative !== '..' && !relative.startsWith('..' + path.sep) && !path.isAbsolute(relative); }
 
-export function createServer() {
-  return http.createServer(async (req, res) => {
+export function createServer(options = {}) {
+  const exportApi = createExportApi(options.exportApi);
+  const server = http.createServer(async (req, res) => {
+    if (await exportApi.handle(req, res)) return;
     const security = { 'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'no-referrer' };
     const reply = (status, message, headers = {}) => { res.writeHead(status, { ...security, 'Content-Type': 'text/plain; charset=utf-8', ...headers }); res.end(req.method === 'HEAD' ? undefined : message); };
     if (req.method !== 'GET' && req.method !== 'HEAD') return reply(405, 'Method not allowed', { Allow: 'GET, HEAD' });
@@ -35,7 +38,7 @@ export function createServer() {
     try { relative = decodeURIComponent((req.url || '/').split('?')[0]); } catch { return reply(400, 'Invalid URL'); }
     if (relative.includes('\0') || relative.includes('\\')) return reply(400, 'Invalid path');
     if (relative.split('/').some(part => part === '..' || part.startsWith('.'))) return reply(403, 'Forbidden');
-    if (relative === '/__cinecut/health') { res.writeHead(200, { ...security, 'Content-Type': 'application/json' }); return res.end(JSON.stringify({ app: 'cinecut', version: '1.0.0' })); }
+    if (relative === '/__cinecut/health') { res.writeHead(200, { ...security, 'Content-Type': 'application/json' }); return res.end(JSON.stringify({ app: 'cinecut', version: '1.1.0' })); }
     let file = path.resolve(root, '.' + relative);
     if (!insideRoot(file)) return reply(403, 'Forbidden');
     if (relative.endsWith('/')) file = path.join(file, 'index.html');
@@ -56,6 +59,11 @@ export function createServer() {
       stream.pipe(res);
     } catch { reply(404, 'Not found'); }
   });
+  server.on('close', () => { void exportApi.close(); });
+  server.closeExports = exportApi.close;
+  // Large movies stay streamed to disk and may take longer than Node's default timeout.
+  server.requestTimeout = 0;
+  return server;
 }
 
 function openBrowser(url) {
@@ -82,5 +90,5 @@ if (direct) {
     process.exitCode = 1;
   });
   server.listen(port, '127.0.0.1', () => { console.log(`CineCut is running at ${url}\nLocal files stay on this computer. Press Ctrl+C to stop.`); if (process.argv.includes('--open')) openBrowser(url); });
-  for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, () => server.close(() => process.exit(0)));
+  for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, async () => { await server.closeExports(); server.close(() => process.exit(0)); });
 }

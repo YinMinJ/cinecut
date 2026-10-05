@@ -1,14 +1,16 @@
 {
   "name": "cinecut",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": true,
   "description": "影刻 CineCut - a local-first movie highlight editor",
   "type": "module",
-  "engines": { "node": ">=20" },
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "start": "node scripts/server.mjs",
     "start:open": "node scripts/server.mjs --open",
     "test": "node --test tests/*.test.mjs",
-    "check": "node --check dist/app.js && node --check dist/logic.js && node --check scripts/server.mjs"
+    "check": "node --check dist/app.js && node --check dist/export.js && node --check dist/logic.js && node --check scripts/server.mjs && node --check scripts/export-api.mjs"
   }
 }

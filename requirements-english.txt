@@ -1,0 +1,4 @@
+# Install once with: python -m pip install -r requirements-english.txt
+# Whisper model files must be downloaded separately during setup.
+faster-whisper>=1.2.1,<2
+numpy>=1.24,<3

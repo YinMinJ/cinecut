@@ -11,16 +11,27 @@ export function setupExporter({state, setBusy, toast, total}) {
     if (!response.ok) throw new Error(body.error || `本机服务返回 ${response.status}`);
     return body;
   }
+  function modeReady(mode) {
+    if (!capabilities) return false;
+    if (mode === 'original-english') return capabilities.subtitleReady ?? capabilities.capabilities?.['original-english'] ?? false;
+    if (mode === 'english') return capabilities.englishReady ?? false;
+    return capabilities.originalReady ?? false;
+  }
   function updateMode() {
-    const english = $('exportMode').value === 'english';
-    $('burnSubtitles').disabled = english || Boolean(state.exportJob);
-    if (english) $('burnSubtitles').checked = true;
-    $('subtitleExportNote').textContent = english
-      ? state.demo ? '内置示例主要是音乐与音效。请导入有对白的影片以生成英文配音；此示例可以选择「保留原声」导出。' : '自动识别所选片段的对白，翻译为英语，生成英文配音并将英文字幕烧入画面。'
-      : state.cues.length ? `已导入 ${state.cues.length} 条字幕，按剪辑后的时间烧入画面。` : '尚未导入字幕：此模式只保留原声。如需自动英文字幕，请选择英文配音模式。';
-    $('englishNote').hidden = !english;
-    const ready = capabilities && (english ? capabilities.ready : (capabilities.originalReady ?? capabilities.ready));
-    $('startExportBtn').disabled = !ready || Boolean(state.exportJob) || (english && state.demo);
+    const mode = $('exportMode').value, translated = mode !== 'original';
+    $('burnSubtitles').disabled = translated || Boolean(state.exportJob);
+    if (translated) $('burnSubtitles').checked = true;
+    $('subtitleExportNote').textContent = translated
+      ? state.demo ? '内置示例主要是音乐与音效。请导入有对白的影片以生成英文字幕；此示例可以选择「原声＋已导入字幕」导出。' : mode === 'original-english' ? '自动识别原语言并翻译为英文字幕，字幕时间与原片对白对应；保留电影原声。' : '自动翻译对白为英语，生成英文配音并将英文字幕烧入画面。'
+      : state.cues.length ? `已导入 ${state.cues.length} 条字幕，按剪辑后的时间烧入画面。` : '尚未导入字幕。如需自动生成英文字幕，请选择「原声＋自动英文字幕」。';
+    $('englishNote').hidden = !translated;
+    $('englishNote').textContent = mode === 'english' ? '使用通用英文音色替换原声，不保留原背景音乐或同步口型。没有可识别对白时会提示。' : '保留原片对白、配乐和音效。仅将对白翻译成英文字幕，烧录到画面中，并提供独立 SRT 文件。';
+    const ready = modeReady(mode);
+    $('startExportBtn').disabled = !ready || Boolean(state.exportJob) || (translated && state.demo);
+    if (capabilities) {
+      $('engineStatus').textContent = ready ? '● 本机导出引擎已就绪' : '● 当前导出模式需要配置';
+      if (!ready) $('subtitleExportNote').textContent = (capabilities.modeProblems?.[mode] || capabilities.problems || ['请配置本机引擎后重试。']).join('；');
+    }
   }
   $('exportMode').onchange = updateMode;
   $('exportBtn').onclick = async () => {
@@ -40,8 +51,7 @@ export function setupExporter({state, setBusy, toast, total}) {
     $('exportDialog').showModal();
     try {
       capabilities = await json('/api/capabilities');
-      $('engineStatus').textContent = capabilities.ready ? '● 英文输出引擎已就绪 · 全程本机处理' : '● 英文输出引擎需要配置';
-      $('exportStatus').textContent = capabilities.ready ? (state.demo ? '引擎已就绪。请导入有对白的视频，或选择保留原声导出演示片。' : '准备就绪。默认导出英文配音＋英文字幕 MP4。') : (capabilities.problems || []).join('；') || '请按 README 配置本机导出引擎。';
+      $('exportStatus').textContent = modeReady($('exportMode').value) ? (state.demo ? '请导入有对白的视频，或使用已导入字幕模式导出演示片。' : '准备就绪，原声与英文字幕将一起写入 MP4。') : '请按提示配置所选模式需要的本机引擎。';
     } catch (error) { $('exportStatus').textContent = error.message; }
     updateMode();
   };
@@ -107,19 +117,19 @@ export function setupExporter({state, setBusy, toast, total}) {
         if (status.status === 'completed') {
           const result = status.result;
           $('downloadLink').href = result.videoUrl;
-          $('downloadLink').download = $('exportMode').value === 'english' ? 'CineCut-English.mp4' : 'CineCut-Original.mp4';
+          $('downloadLink').download = $('exportMode').value === 'english' ? 'CineCut-English.mp4' : $('exportMode').value === 'original-english' ? 'CineCut-Original-English-Subtitles.mp4' : 'CineCut-Original.mp4';
           $('downloadLink').hidden = false;
           if (result.subtitlesUrl) {
             $('subtitleDownload').href = result.subtitlesUrl;
-            $('subtitleDownload').download = $('exportMode').value === 'english' ? 'CineCut-English.srt' : 'CineCut-Subtitles.srt';
+            $('subtitleDownload').download = $('exportMode').value !== 'original' ? 'CineCut-English.srt' : 'CineCut-Subtitles.srt';
             $('subtitleDownload').hidden = false;
           }
           $('exportPreview').src = result.videoUrl;
           $('exportPreview').muted = false;
           $('exportPreview').hidden = false;
           $('exportProgress').value = 100;
-          $('exportStatus').textContent = '成片已生成，音轨检查通过。请播放检查配音与字幕后下载。';
-          $('exportResult').textContent = `MP4 · ${result.language === 'en' ? '英文配音' : '原声'} · ${result.subtitleCount || 0} 条烧录字幕${Number.isFinite(result.audioRmsDb) ? ` · 音量 ${result.audioRmsDb.toFixed(1)} dBFS` : ''}${result.warnings?.length ? '\n' + result.warnings.join('\n') : ''}`;
+          $('exportStatus').textContent = '成片已生成，音轨检查通过。请播放检查声音与字幕后下载。';
+          $('exportResult').textContent = `MP4 · ${result.audioMode === 'dubbed' ? '英文配音' : '电影原声'} · ${result.subtitleCount || 0} 条${result.subtitleLanguage === 'en' ? '英文' : ''}烧录字幕${Number.isFinite(result.audioRmsDb) ? ` · 音量 ${result.audioRmsDb.toFixed(1)} dBFS` : ''}${result.warnings?.length ? '\n' + result.warnings.join('\n') : ''}`;
           $('exportResult').hidden = false;
           $('exportResult').scrollIntoView({block: 'nearest', behavior: 'smooth'});
           toast('成片与字幕已就绪');

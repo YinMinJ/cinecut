@@ -1,0 +1,21 @@
+Demo media: Big Buck Bunny (2008), excerpt / trailer.
+
+Copyright: (c) copyright 2008, Blender Foundation / www.bigbuckbunny.org
+License: Creative Commons Attribution 3.0 Unported
+License URL: https://creativecommons.org/licenses/by/3.0/
+Official license statement: https://peach.blender.org/about/
+
+Video: big-buck-bunny-30s.mp4
+Downloaded from: https://raw.githubusercontent.com/chintan9/Big-Buck-Bunny/master/BigBuckBunny720p30s.mp4
+Mirror page: https://github.com/chintan9/Big-Buck-Bunny
+Verified file size: 9864274 bytes
+Verified MP4 metadata: 30.08 seconds, 1280 x 720, H.264 video, AAC audio.
+Server permits cross-origin use: Access-Control-Allow-Origin: *
+Excerpt provided by mirror; app users may create further edits.
+
+Poster: big-buck-bunny-poster.jpg (500 x 278)
+Downloaded from: https://upload.wikimedia.org/wikipedia/commons/thumb/b/b3/Big_Buck_Bunny_Trailer_400p.ogv/500px--Big_Buck_Bunny_Trailer_400p.ogv.jpg
+Source and license: https://commons.wikimedia.org/wiki/File:Big_Buck_Bunny_Trailer_400p.ogv
+This image is a frame from the trailer and may differ from the first frame of the demo excerpt.
+
+Display the copyright attribution and license link next to the demo or in an accessible credits panel. Indicate that exports are edited excerpts when exporting demo footage.

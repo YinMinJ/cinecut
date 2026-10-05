@@ -38,7 +38,7 @@ export function createServer(options = {}) {
     try { relative = decodeURIComponent((req.url || '/').split('?')[0]); } catch { return reply(400, 'Invalid URL'); }
     if (relative.includes('\0') || relative.includes('\\')) return reply(400, 'Invalid path');
     if (relative.split('/').some(part => part === '..' || part.startsWith('.'))) return reply(403, 'Forbidden');
-    if (relative === '/__cinecut/health') { res.writeHead(200, { ...security, 'Content-Type': 'application/json' }); return res.end(JSON.stringify({ app: 'cinecut', version: '1.1.0' })); }
+    if (relative === '/__cinecut/health') { res.writeHead(200, { ...security, 'Content-Type': 'application/json' }); return res.end(JSON.stringify({ app: 'cinecut', version: '1.2.0' })); }
     let file = path.resolve(root, '.' + relative);
     if (!insideRoot(file)) return reply(403, 'Forbidden');
     if (relative.endsWith('/')) file = path.join(file, 'index.html');

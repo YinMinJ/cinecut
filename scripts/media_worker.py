@@ -100,25 +100,31 @@ def speech_command():
             '-File', ROOT / 'scripts' / 'synthesize.ps1']
 
 
-def check_runtime():
+def check_runtime(check_voice=True):
     ffmpeg, ffprobe = executable('CINECUT_FFMPEG', 'ffmpeg'), executable('CINECUT_FFPROBE', 'ffprobe')
     model = model_path()
     installed = importlib.util.find_spec('faster_whisper') is not None and importlib.util.find_spec('numpy') is not None
-    problems = []
+    original_problems = []
     voice = None
     if not ffmpeg or not ffprobe:
-        problems.append('请配置 CINECUT_FFMPEG 与 CINECUT_FFPROBE。')
+        original_problems.append('请配置 CINECUT_FFMPEG 与 CINECUT_FFPROBE。')
+    translation_problems = original_problems.copy()
     if not installed:
-        problems.append('请先安装 requirements-english.txt 中的 Python 依赖。')
+        translation_problems.append('请先安装 requirements-english.txt 中的 Python 依赖。')
     if not model:
-        problems.append('未找到完整的离线 Whisper 模型，请配置 CINECUT_WHISPER_MODEL。')
-    try:
-        voice = json.loads(run(speech_command() + ['-Check'], timeout=30).decode('utf-8-sig'))['voice']
-    except (RenderError, ValueError, KeyError) as exc:
-        problems.append(f'英语配音不可用：{exc}')
+        translation_problems.append('未找到完整的离线 Whisper 模型，请配置 CINECUT_WHISPER_MODEL。')
+    dubbing_problems = translation_problems.copy()
+    if check_voice:
+        try:
+            voice = json.loads(run(speech_command() + ['-Check'], timeout=30).decode('utf-8-sig'))['voice']
+        except (RenderError, ValueError, KeyError) as exc:
+            dubbing_problems.append(f'英语配音不可用：{exc}')
     original = bool(ffmpeg and ffprobe)
-    english = bool(original and installed and model and voice)
-    return dict(ready=english, problems=problems, capabilities=dict(original=original, english=english),
+    original_english = bool(original and installed and model)
+    english = bool(original_english and voice)
+    return dict(ready=original_english, problems=translation_problems,
+                modeProblems={'original': original_problems, 'original-english': translation_problems, 'english': dubbing_problems},
+                capabilities={'original': original, 'original-english': original_english, 'english': english},
                 ffmpeg=ffmpeg, ffprobe=ffprobe, model=model, voice=voice, fasterWhisper=installed)
 
 
@@ -217,7 +223,7 @@ def bound_cues(cues, width):
 
 
 def write_subtitles(jobdir, cues, width, height, mode, demo_duration=0):
-    name = 'english.srt' if mode == 'english' else 'subtitles.srt'
+    name = 'english.srt' if mode in ('english', 'original-english') else 'subtitles.srt'
     parts = []
     for index, cue in enumerate(cues, 1):
         parts.append(f"{index}\n{timestamp(cue['start'])} --> {timestamp(cue['end'])}\n{cue['text']}\n")
@@ -308,7 +314,7 @@ def translate(ffmpeg, parts, jobdir, duration):
                     languages.append(info.language)
         offset += part_duration
     if not cues:
-        raise RenderError('选中片段没有识别到可翻译的人声。请选有对白的片段；纯音乐、环境声和无对白演示片不能生成英文配音。')
+        raise RenderError('选中片段没有识别到可翻译的人声。请选有对白的片段；纯音乐、环境声和无对白演示片不能生成英文字幕。')
     return cues, languages
 
 
@@ -389,18 +395,23 @@ def render_job(jobfile):
     source = Path(job.get('source', '')).resolve()
     if not source.is_file():
         raise RenderError('找不到上传的视频文件，请重新导入。')
-    mode = job.get('mode', 'english')
-    if mode not in ('english', 'original'):
+    mode = job.get('mode', 'original-english')
+    if mode not in ('english', 'original-english', 'original'):
         raise RenderError('导出模式无效。')
-    runtime = check_runtime()
+    runtime = check_runtime(check_voice=mode == 'english')
     if not runtime['capabilities'][mode]:
-        raise RenderError('；'.join(runtime['problems']))
+        problems = runtime.get('modeProblems', {}).get(mode) or runtime.get('problems') or ['所选导出模式的本地依赖尚未就绪。']
+        raise RenderError('；'.join(problems))
     ffmpeg, ffprobe = runtime['ffmpeg'], runtime['ffprobe']
     metadata = probe(ffprobe, source)
     if not any(s.get('codec_type') == 'video' for s in metadata['streams']):
         raise RenderError('文件没有可读取的视频轨道。')
     if not any(s.get('codec_type') == 'audio' for s in metadata['streams']):
         raise RenderError('源视频没有音轨，无法导出有声成片或生成英语配音。')
+    source_audio = next(s for s in metadata['streams'] if s.get('codec_type') == 'audio')
+    audio_language = str(source_audio.get('tags', {}).get('language', '')).lower()
+    if not re.fullmatch(r'[a-z]{2,3}', audio_language) or audio_language == 'und':
+        audio_language = None
     try:
         source_duration = float(metadata['format']['duration'])
     except (KeyError, ValueError):
@@ -428,11 +439,14 @@ def render_job(jobfile):
     if audio_rms(ffmpeg, montage) <= -70:
         raise RenderError('选中片段的音轨为空白或接近静音，已停止无声导出；请检查原视频或选择有声音的片段。')
     source_languages, warnings = [], []
-    if mode == 'english':
+    if mode in ('english', 'original-english'):
         if job.get('demo'):
             raise RenderError('内置 Big Buck Bunny 演示片没有可翻译对白。请导入含有人声的视频，或改用保留原声模式。')
         cues, source_languages = translate(ffmpeg, parts, jobdir, duration)
-        cues = synthesize(ffmpeg, jobdir, cues, duration)
+        if mode == 'english':
+            cues = synthesize(ffmpeg, jobdir, cues, duration)
+        else:
+            emit(progress=80, message='英语字幕已生成，保留电影原声、音乐和音效…')
     else:
         cues = bound_cues(remap_cues(job.get('cues') or [], clips), width)
         if not cues:
@@ -447,11 +461,17 @@ def render_job(jobfile):
         command += ['-map', '0:v:0', '-map', '0:a:0']
     if mode == 'english':
         command += ['-metadata:s:a:0', 'language=eng', '-metadata:s:a:0', 'title=English narration']
+    elif audio_language:
+        command += ['-metadata:s:a:0', f'language={audio_language}']
     if burn_captions:
         command += ['-vf', 'ass=captions.ass', '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '20', '-pix_fmt', 'yuv420p']
     else:
         command += ['-c:v', 'copy']
-    command += ['-c:a', 'aac', '-b:a', '192k', '-ar', str(RATE), '-ac', '2', '-t', f'{duration:.6f}', '-movflags', '+faststart', 'result.mp4']
+    if mode == 'english':
+        command += ['-c:a', 'aac', '-b:a', '192k', '-ar', str(RATE), '-ac', '2']
+    else:
+        command += ['-c:a', 'copy']
+    command += ['-t', f'{duration:.6f}', '-movflags', '+faststart', 'result.mp4']
     run(command, cwd=jobdir)
     emit(progress=96, message='正在检查成片音轨与字幕…')
     final_meta = probe(ffprobe, jobdir / 'result.mp4')
@@ -463,7 +483,10 @@ def render_job(jobfile):
     files = dict(video='result.mp4')
     if subtitle_name and cues:
         files['subtitles'] = subtitle_name
-    return dict(done=True, duration=round(float(final_meta['format']['duration']), 3), language='en' if mode == 'english' else None,
+    output_language = 'en' if mode == 'english' else source_languages[0] if len(source_languages) == 1 else audio_language
+    return dict(done=True, duration=round(float(final_meta['format']['duration']), 3), language=output_language,
+                audioMode='dubbed' if mode == 'english' else 'original',
+                subtitleLanguage='en' if mode in ('english', 'original-english') else None,
                 sourceLanguages=source_languages,
                 subtitleCount=len(cues), audioRmsDb=rms, files=files, warnings=warnings)
 

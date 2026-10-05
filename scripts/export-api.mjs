@@ -18,7 +18,7 @@ function json(res, status, body) {
 
 export function validateOptions(input) {
   if (!input || typeof input !== 'object' || Array.isArray(input)) throw fault(400, 'Invalid job options.');
-  if (!['english', 'original'].includes(input.mode)) throw fault(400, 'Choose English or original audio.');
+  if (!['original-english', 'english', 'original'].includes(input.mode)) throw fault(400, 'Choose a supported audio and subtitle mode.');
   if (!['16:9', '9:16', '1:1'].includes(input.aspect)) throw fault(400, 'Unsupported aspect ratio.');
   if (!['720', '1080', '720p', '1080p'].includes(String(input.quality))) throw fault(400, 'Unsupported output quality.');
   if (!Array.isArray(input.clips) || input.clips.length < 1 || input.clips.length > 100) throw fault(400, 'Select between 1 and 100 clips.');
@@ -153,7 +153,7 @@ export function createExportApi(options = {}) {
       const child = launch(['--check']); let output = '', errors = '', finished = false;
       const finish = value => {
         if (finished) return; finished = true; clearTimeout(timer);
-        const result = { ...value, ready: value.ready === true, englishReady: value.capabilities?.english ?? value.ready === true, originalReady: value.capabilities?.original === true, token };
+        const result = { ...value, ready: value.ready === true, subtitleReady: value.capabilities?.['original-english'] === true, englishReady: value.capabilities?.english === true, originalReady: value.capabilities?.original === true, token };
         capabilityCache = { at: Date.now(), value: result }; resolve(result);
       };
       const timer = setTimeout(() => { terminate(child); finish({ ready: false, problems: ['Media engine check timed out.'] }); }, options.checkTimeoutMs || 30000); timer.unref();
@@ -214,7 +214,7 @@ export function createExportApi(options = {}) {
         if (!video.isFile() || video.size < 32) throw new Error('The media engine did not produce a valid video.');
         const subtitleName = ['english.srt', 'subtitles.srt'].includes(finalResult.files?.subtitles) ? finalResult.files.subtitles : 'english.srt';
         const hasSubtitles = await fs.promises.stat(path.join(job.dir, subtitleName)).then(s => s.isFile() && s.size > 0).catch(() => false);
-        if (job.options.mode === 'english' && !hasSubtitles) throw new Error('English subtitles were not produced.');
+        if (job.options.mode !== 'original' && (!hasSubtitles || subtitleName !== 'english.srt' || !(finalResult.subtitleCount > 0))) throw new Error('English subtitles were not produced.');
         const { files, done, ...details } = finalResult;
         job.result = { ...details, videoUrl: `/api/jobs/${job.id}/files/result.mp4`, ...(hasSubtitles ? { subtitlesUrl: `/api/jobs/${job.id}/files/${subtitleName}` } : {}) };
         setState(job, 'completed', 'Export complete.', 100);
